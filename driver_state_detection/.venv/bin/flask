@@ -1,0 +1,10 @@
+#!/bin/sh
+'''exec' "/Users/riyadrajan/Library/CloudStorage/OneDrive-Personal/Concordia/COEN 390/COEN390-StudyTracker/driver_state_detection/.venv/bin/python3.11" "$0" "$@"
+' '''
+# -*- coding: utf-8 -*-
+import re
+import sys
+from flask.cli import main
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())
