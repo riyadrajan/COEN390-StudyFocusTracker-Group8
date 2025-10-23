@@ -49,6 +49,15 @@ PORT=3000 .venv/bin/python -m driver_state_detection.server
 PORT=3000 driver_state_detection/.venv/bin/python -m driver_state_detection.server
 ```
 
+## Run logic detection 
+```
+go into driver_state_detection dir
+python3 -m venv .venv
+source .venv/bin/activate
+* pip install flask opencv-python mediapipe numpy (If not installed)
+python3 main.py
+```
+
 
 ## Clean port  
 - Check if the port is being used:
