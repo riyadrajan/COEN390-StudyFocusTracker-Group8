@@ -44,6 +44,11 @@ pip install Flask
 PORT=3000 .venv/bin/python -m driver_state_detection.server
 ```
 
+## Run server from StateDetectorLogic
+```bash
+PORT=3000 driver_state_detection/.venv/bin/python -m driver_state_detection.server
+```
+
 
 ## Clean port  
 - Check if the port is being used:
