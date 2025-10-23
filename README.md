@@ -32,8 +32,15 @@
 - Navigate to the StateDetectionLogic Folder  
 - In terminal, run the following commands
 ```bash
+python3 -m venv .venv
+```
+```bash
 . .venv/bin/activate
+```
+```bash
 pip install Flask
+```
+```bash
 PORT=3000 .venv/bin/python -m driver_state_detection.server
 ```
 
