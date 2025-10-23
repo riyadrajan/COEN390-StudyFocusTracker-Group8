@@ -50,11 +50,17 @@ PORT=3000 driver_state_detection/.venv/bin/python -m driver_state_detection.serv
 ```
 
 ## Run logic detection 
-```
+```bash
 go into driver_state_detection dir
+```
+```bash
 python3 -m venv .venv
+```
+```bash
 source .venv/bin/activate
+```
 * pip install flask opencv-python mediapipe numpy (If not installed)
+```bash
 python3 main.py
 ```
 
