@@ -22,8 +22,8 @@ import okhttp3.logging.HttpLoggingInterceptor;
 public class MainActivity extends AppCompatActivity {
 
     OkHttpClient client;
-    private static final String BASE_URL = "http://10.0.2.2:3000";
-
+//    private static final String BASE_URL = "http://10.0.2.2:3000";
+    private static final String BASE_URL = "http://192.168.2.19:3000";
     TextView welcomeText, timerText;
     Button startBtn, stopBtn,logoutBtn;
 
