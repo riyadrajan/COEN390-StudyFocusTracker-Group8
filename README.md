@@ -14,14 +14,9 @@
 ```
 - In networkSecurityConfig.xml
 ```xml
-  <!--In networkSecurityConfig.xml -->
-    <?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Allow cleartext (http) only to the local host mapping 10.0.2.2 used by Android emulator -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">10.0.2.2</domain>
-        <domain>localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>
 ```
 - MainActivity.java
