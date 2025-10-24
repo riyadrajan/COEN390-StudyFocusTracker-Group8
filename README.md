@@ -21,7 +21,7 @@
 ```
 - MainActivity.java
   - Use http://10.0.2.2:3000 as the base URL when using the android emulator 
-  - Use local IP address if using the physical android phone
+  - Use local IP address if using the physical android phone  
 Quick way to find local IP address on mac/linux:
 ```bash
 ipconfig getifaddr en0
