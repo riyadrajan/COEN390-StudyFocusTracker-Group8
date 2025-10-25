@@ -4,6 +4,7 @@ import pprint
 import cv2
 import mediapipe as mp
 import numpy as np
+import requests
 
 try:
     from .attention_scorer import AttentionScorer as AttScorer
@@ -11,6 +12,7 @@ try:
     from .parser import get_args
     from .pose_estimation import HeadPoseEstimator as HeadPoseEst
     from .utils import get_landmarks, load_camera_parameters
+    # from . import state
 except ImportError:
     # Fallback for running this file directly as a script
     from attention_scorer import AttentionScorer as AttScorer
@@ -18,6 +20,8 @@ except ImportError:
     from parser import get_args
     from pose_estimation import HeadPoseEstimator as HeadPoseEst
     from utils import get_landmarks, load_camera_parameters
+    # import state  # type: ignore
+
 
 
 def main():
@@ -91,6 +95,9 @@ def main():
         exit()
 
     # time.sleep(0.01)  # To prevent zero division error when calculating the FPS
+
+    # Track previous state to trigger once per transition to True
+    last_distracted = False
 
     while True:  # infinite loop for webcam video capture
         # get current time in seconds
@@ -279,6 +286,12 @@ def main():
                     1,
                     cv2.LINE_AA,
                 )
+            # # shared module state copies local variable state to be read by the esp32s (wristband/light)
+            # try:
+            #     state.distracted = bool(distracted)
+            # except Exception:
+            #     pass
+
             if distracted:
                 cv2.putText(
                     frame,
@@ -290,6 +303,19 @@ def main():
                     1,
                     cv2.LINE_AA,
                 )
+
+            #executes if distracted is true, and last distracted is false
+            #prevents sending multiple post requests while distracted is true
+            # Rising-edge trigger: send once when distracted flips False -> True
+            if distracted and not last_distracted:
+                try:
+                    requests.post("http://127.0.0.1:3000/light", timeout=0.75)
+                except Exception:
+                    # Ignore network errors to avoid breaking the loop
+                    pass
+
+            # Update edge detector
+            last_distracted = distracted
 
         # stop the tick counter for computing the processing time for each frame
         e2 = cv2.getTickCount()
