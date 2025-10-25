@@ -4,7 +4,8 @@ import signal
 import subprocess
 import time
 import logging
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
+import requests
 
 ##TEST 123
 
@@ -20,10 +21,16 @@ app.logger.setLevel(logging.INFO)
 # Track a child process running the vision pipeline
 proc = None
 
+# Optional: read shared state for debugging/testing
+try:
+    from . import state as shared_state
+except Exception:
+    shared_state = None
+
 #define endpoints
 @app.route('/', methods=['GET'])
 def root():
-    return jsonify({"status": "ok", "endpoints": ["POST /start", "POST /stop", "GET /status", "GET /health"]})
+    return jsonify({"status": "ok", "endpoints": ["POST /start", "POST /stop", "GET /status", "GET /health", "POST /light"]})
 
 
 @app.route('/health', methods=['GET'])
@@ -37,6 +44,17 @@ def status():
     running = proc is not None and (proc.poll() is None)
     pid = proc.pid if running else None
     return jsonify({"running": running, "pid": pid})
+
+#test response for lighting LED on esp32
+@app.route('/light', methods=['POST'])
+def light():
+    '''
+    Right now this is just a local response in terminal to see if the /light request is received by the server
+    This will be changed to send to the esp32 later on
+    '''
+    resp = {"status": "LED ON", "esp32_response": "works"}
+    app.logger.info("/light response: %s", resp)
+    return jsonify(resp)
 
 
 @app.route('/start', methods=['POST'])
