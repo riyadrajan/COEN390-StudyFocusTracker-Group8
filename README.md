@@ -40,6 +40,13 @@ python3 -m venv .venv
 pip install Flask
 ```
 ```bash
+pip install flask-sock
+```
+```bash
+pip install requests
+```
+Note: Refer to requirements.txt and pip install dependencies in the venv
+```bash
 PORT=3000 .venv/bin/python -m driver_state_detection.server
 ```
 
