@@ -50,7 +50,7 @@ Note: Refer to requirements.txt and pip install dependencies in the venv
 PORT=3000 .venv/bin/python -m driver_state_detection.server
 ```
 
-## Run server from StateDetectorLogic dir
+## Run server from StateDetectorLogic dir (if .venv is in driver_state_detection directory)
 ```bash
 PORT=3000 driver_state_detection/.venv/bin/python -m driver_state_detection.server
 ```
