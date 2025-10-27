@@ -1,10 +1,12 @@
 import time
 import pprint
+import requests
+import datetime
 
 import cv2
 import mediapipe as mp
 import numpy as np
-import requests
+
 
 try:
     from .attention_scorer import AttentionScorer as AttScorer
@@ -302,14 +304,27 @@ def main():
                     (0, 0, 255),
                     1,
                     cv2.LINE_AA,
+                    
                 )
 
             #executes if distracted is true, and last distracted is false
             #prevents sending multiple post requests while distracted is true
             # Rising-edge trigger: send once when distracted flips False -> True
-            if distracted and not last_distracted:
+            #True edge detection for turning on and off the light
+
+            if distracted and not last_distracted :
+                payload= {"light_on":True}
                 try:
-                    requests.post("http://127.0.0.1:3000/light", timeout=0.75)
+                    requests.post("http://127.0.0.1:3000/light",json=payload, timeout=0.75)
+                except Exception:
+                    # Ignore network errors to avoid breaking the loop
+                    pass
+                    last_distracted = distracted
+
+            if not distracted and last_distracted :
+                payload={"light_on":False}
+                try:
+                     requests.post("http://127.0.0.1:3000/light",json=payload, timeout=0.75)
                 except Exception:
                     # Ignore network errors to avoid breaking the loop
                     pass
