@@ -1,9 +1,11 @@
 package com.example.studytrackerbasictest;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -23,9 +25,13 @@ public class MainActivity extends AppCompatActivity {
 
     OkHttpClient client;
 //    private static final String BASE_URL = "http://10.0.2.2:3000";
-    private static final String BASE_URL = "http://192.168.2.19:3000";
+    private static  String BASE_URL = "http://172.20.10.4:3000";
+
+    private static final String PREFS_NAME = "AppPrefs";
+    private static final String KEY_IP = "server_ip";
     TextView welcomeText, timerText;
-    Button startBtn, stopBtn,logoutBtn;
+    Button startBtn, stopBtn,logoutBtn,saveIpBtn;
+    EditText ipInput;
 
     private Handler handler = new Handler();
     private boolean isRunning = false;
@@ -43,6 +49,9 @@ public class MainActivity extends AppCompatActivity {
         startBtn = findViewById(R.id.startBtn);
         stopBtn = findViewById(R.id.stopBtn);
         logoutBtn = findViewById(R.id.logoutBtn);
+        ipInput = findViewById(R.id.ipInput);
+        saveIpBtn = findViewById(R.id.saveIpBtn);
+
 
 
         // Get username from Intent
@@ -51,6 +60,13 @@ public class MainActivity extends AppCompatActivity {
             welcomeText.setText("Welcome, " + username + "!");
         }
 
+        // Load saved IP if available
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String savedIp = prefs.getString(KEY_IP, "");
+        if (!savedIp.isEmpty()) {
+            ipInput.setText(savedIp);
+            BASE_URL = "http://" + savedIp + ":3000";
+        }
         // Initialize HTTP client
         HttpLoggingInterceptor logging = new HttpLoggingInterceptor();
         logging.setLevel(HttpLoggingInterceptor.Level.BASIC);
@@ -62,6 +78,17 @@ public class MainActivity extends AppCompatActivity {
             return insets;
         });
 
+        // --- Button Listeners ---
+        saveIpBtn.setOnClickListener(v -> {
+            String enteredIp = ipInput.getText().toString().trim();
+            if (enteredIp.isEmpty()) {
+                Toast.makeText(MainActivity.this, "Please enter a valid IP", Toast.LENGTH_SHORT).show();
+            } else {
+                BASE_URL = "http://" + enteredIp + ":3000";
+                prefs.edit().putString(KEY_IP, enteredIp).apply();
+                Toast.makeText(MainActivity.this, "Server IP saved!", Toast.LENGTH_SHORT).show();
+            }
+        });
         // Button listeners
         startBtn.setOnClickListener(v -> {
             sendRequest("/start");
