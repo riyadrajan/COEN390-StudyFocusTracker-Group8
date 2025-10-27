@@ -1,126 +1,160 @@
 import os
 import sys
-import signal
 import subprocess
 import time
 import logging
 from flask import Flask, jsonify, request
+from flask_sock import Sock
 import requests
 
-##TEST 123
-
-# Optional: keep import available if you want to run in-process
-# from . import main  # execute package main when requested from start in app
-
 app = Flask(__name__)
+sock = Sock(app)
 
-# Configure logging to ensure we see requests and server logs
 logging.getLogger("werkzeug").setLevel(logging.INFO)
 app.logger.setLevel(logging.INFO)
 
-# Track a child process running the vision pipeline
 proc = None
+light_on_state = False
+ws_clients = set()  # track connected WebSocket clients
 
-# Optional: read shared state for debugging/testing
-try:
-    from . import state as shared_state
-except Exception:
-    shared_state = None
 
-#define endpoints
-@app.route('/', methods=['GET'])
+@app.route('/')
 def root():
-    return jsonify({"status": "ok", "endpoints": ["POST /start", "POST /stop", "GET /status", "GET /health", "POST /light"]})
+    return jsonify({
+        "status": "ok",
+        "endpoints": ["/start", "/stop", "/status", "/light", "/ws"]
+    })
 
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({"status": "healthy"})
-
-
-@app.route('/status', methods=['GET'])
+@app.route('/status')
 def status():
     global proc
-    running = proc is not None and (proc.poll() is None)
+    running = proc is not None and proc.poll() is None
     pid = proc.pid if running else None
     return jsonify({"running": running, "pid": pid})
 
-#test response for lighting LED on esp32
 @app.route('/light', methods=['POST'])
 def light():
-    '''
-    Right now this is just a local response in terminal to see if the /light request is received by the server
-    This will be changed to send to the esp32 later on
-    '''
-    resp = {"status": "LED ON", "esp32_response": "works"}
-    app.logger.info("/light response: %s", resp)
-    return jsonify(resp)
+    global light_on_state
+    data = request.get_json(silent=True) or {}
 
+    # Robust parsing of light_on
+    val = data.get("light_on", True)
+    if isinstance(val, bool):
+        light_on_state = val
+    elif isinstance(val, str):
+        light_on_state = val.lower() == "true"  # Only "true" is True, everything else False
+    else:
+        light_on_state = bool(val)
+
+    app.logger.info(f"Light state set to: {light_on_state}")
+
+    # Broadcast to all connected WebSocket clients as raw string
+    for ws in list(ws_clients):
+        try:
+            ws.send("ON" if light_on_state else "OFF")
+        except Exception:
+            ws_clients.discard(ws)
+
+    return jsonify({"status": "ok", "light_on": light_on_state})
 
 @app.route('/start', methods=['POST'])
 def start():
+    """
+    Starts the driver_state_detection.main process if not already running.
+    Returns JSON with status and PID if started successfully.
+    """
     global proc
-    # If already running, return current status
-    if proc is not None and (proc.poll() is None):
-        app.logger.info("/start called: process already running (pid=%s)", proc.pid)
+
+    # Check if process is already running
+    if proc is not None and proc.poll() is None:
+        app.logger.info("/start called but process already running (pid=%s)", proc.pid)
         return jsonify({"status": "already running", "pid": proc.pid})
 
-    # Build command to run the vision pipeline as a separate process
-    python_exec = sys.executable  # uses the same venv interpreter
+    python_exec = sys.executable
     cmd = [python_exec, "-m", "driver_state_detection.main"]
-    app.logger.info("Starting vision process: %s", " ".join(cmd))
+    app.logger.info("Attempting to start vision process: %s", " ".join(cmd))
 
     try:
-        # Start child detached enough to survive route return, capture stdout/stderr for debugging
+        # Start subprocess
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
-        # Brief delay to surface immediate failures
-        time.sleep(0.3)
-        if proc.poll() is not None and proc.returncode is not None:
-            # Process exited immediately, fetch output
-            output = proc.stdout.read() if proc.stdout else ""
-            app.logger.error("Vision process exited (%s). Output:\n%s", proc.returncode, output)
-            return jsonify({"status": "failed to start", "code": proc.returncode, "output": output}), 500
 
-        app.logger.info("Vision process started (pid=%s)", proc.pid)
+        # Short delay to catch immediate failures
+        time.sleep(0.3)
+
+        if proc.poll() is not None:
+            # Process exited immediately, fetch stdout for debugging
+            output = proc.stdout.read() if proc.stdout else ""
+            app.logger.error("Vision process exited immediately. Output:\n%s", output)
+            proc = None
+            return jsonify({"status": "failed", "output": output}), 500
+
+        # Fail-safe: ensure LED starts OFF
+        light_on_state = False
+        for ws in list(ws_clients):
+            try:
+                ws.send("OFF")
+            except Exception:
+                ws_clients.discard(ws)
+
+
+        # Successfully started
+        app.logger.info("Vision process started successfully (pid=%s)", proc.pid)
         return jsonify({"status": "started", "pid": proc.pid})
+
     except Exception as e:
         app.logger.exception("Failed to start vision process: %s", e)
+        proc = None
         return jsonify({"status": "error", "error": str(e)}), 500
+
+
 
 @app.route('/stop', methods=['POST'])
 def stop():
     global proc
-    if proc is None or (proc.poll() is not None):
-        app.logger.info("/stop called: no running process")
+    if proc is None or proc.poll() is not None:
         return jsonify({"status": "not running"})
 
-    app.logger.info("Stopping vision process (pid=%s)", proc.pid)
     try:
         proc.terminate()
-        try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            app.logger.warning("Terminate timeout, killing process (pid=%s)", proc.pid)
-            proc.kill()
-            proc.wait(timeout=2)
-        status = {"status": "stopped"}
-    except Exception as e:
-        app.logger.exception("Failed to stop process: %s", e)
-        status = {"status": "error", "error": str(e)}
+        proc.wait(timeout=3)
+    except Exception:
+        proc.kill()
     finally:
         proc = None
-    return jsonify(status)
 
-def main():
-    host = os.environ.get('HOST', '0.0.0.0')
-    port = int(os.environ.get('PORT', '3000'))
-    app.run(host=host, port=port)
+        # Ensure LED OFF after stopping
+        light_on_state = False
+        for ws in list(ws_clients):
+            try:
+                ws.send("OFF")
+            except Exception:
+                ws_clients.discard(ws)
+    return jsonify({"status": "stopped"})
+
+
+@sock.route('/ws')
+def websocket(ws):
+    """Handle ESP32 WebSocket clients."""
+    app.logger.info("ESP32 connected via WebSocket")
+    ws_clients.add(ws)
+    try:
+        while True:
+            msg = ws.receive()
+            if msg is None:
+                break
+            app.logger.info(f"Received from ESP32: {msg}")
+    finally:
+        ws_clients.discard(ws)
+        app.logger.info("ESP32 disconnected")
 
 
 if __name__ == '__main__':
-    main()
+    host = os.environ.get('HOST', '0.0.0.0')
+    port = int(os.environ.get('PORT', '3000'))
+    app.run(host=host, port=port)
