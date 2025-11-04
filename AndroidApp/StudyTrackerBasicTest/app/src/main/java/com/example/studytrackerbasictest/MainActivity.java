@@ -4,13 +4,16 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -24,14 +27,13 @@ import okhttp3.logging.HttpLoggingInterceptor;
 public class MainActivity extends AppCompatActivity {
 
     OkHttpClient client;
-//    private static final String BASE_URL = "http://10.0.2.2:3000";
-    private static  String BASE_URL = "http://172.20.10.4:3000";
+    private static String BASE_URL = "http://172.20.10.4:3000";
 
     private static final String PREFS_NAME = "AppPrefs";
     private static final String KEY_IP = "server_ip";
+
     TextView welcomeText, timerText;
-    Button startBtn, stopBtn,logoutBtn,saveIpBtn;
-    EditText ipInput;
+    Button toggleBtn;
 
     private Handler handler = new Handler();
     private boolean isRunning = false;
@@ -43,69 +45,97 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
-        // UI setup
+        // --- Toolbar setup ---
+        Toolbar toolbar = findViewById(R.id.mainToolbar);
+        setSupportActionBar(toolbar);
+
+        // --- UI setup ---
         welcomeText = findViewById(R.id.welcomeText);
         timerText = findViewById(R.id.timerText);
-        startBtn = findViewById(R.id.startBtn);
-        stopBtn = findViewById(R.id.stopBtn);
-        logoutBtn = findViewById(R.id.logoutBtn);
-        ipInput = findViewById(R.id.ipInput);
-        saveIpBtn = findViewById(R.id.saveIpBtn);
+        toggleBtn = findViewById(R.id.toggleBtn);
 
-
-
-        // Get username from Intent
+        // --- Display username ---
         String username = getIntent().getStringExtra("username");
-        if (username != null) {
+        if (username != null)
             welcomeText.setText("Welcome, " + username + "!");
-        }
 
-        // Load saved IP if available
+        // --- Load saved IP ---
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String savedIp = prefs.getString(KEY_IP, "");
         if (!savedIp.isEmpty()) {
-            ipInput.setText(savedIp);
             BASE_URL = "http://" + savedIp + ":3000";
         }
-        // Initialize HTTP client
+
+        // --- HTTP client setup ---
         HttpLoggingInterceptor logging = new HttpLoggingInterceptor();
         logging.setLevel(HttpLoggingInterceptor.Level.BASIC);
         client = new OkHttpClient.Builder().addInterceptor(logging).build();
 
+        // --- Insets ---
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
 
-        // --- Button Listeners ---
-        saveIpBtn.setOnClickListener(v -> {
-            String enteredIp = ipInput.getText().toString().trim();
-            if (enteredIp.isEmpty()) {
-                Toast.makeText(MainActivity.this, "Please enter a valid IP", Toast.LENGTH_SHORT).show();
+        // --- start/stop Button listener ---
+        toggleBtn.setOnClickListener(v -> {
+            if (!isRunning) {
+                sendRequest("/start");
+                startTimer();
+                isRunning = true;
+                toggleBtn.setText("Stop");
+                toggleBtn.setTextColor(getResources().getColor(R.color.red_primary));
+                toggleBtn.setBackgroundResource(R.drawable.round_button_red);
             } else {
-                BASE_URL = "http://" + enteredIp + ":3000";
-                prefs.edit().putString(KEY_IP, enteredIp).apply();
-                Toast.makeText(MainActivity.this, "Server IP saved!", Toast.LENGTH_SHORT).show();
+                sendRequest("/stop");
+                stopTimer();
+                isRunning = false;
+                toggleBtn.setText("Start");
+                toggleBtn.setTextColor(getResources().getColor(R.color.green_primary));
+                toggleBtn.setBackgroundResource(R.drawable.round_button_green);
             }
         });
-        // Button listeners
-        startBtn.setOnClickListener(v -> {
-            sendRequest("/start");
-            startTimer();
-        });
+    }
 
-        stopBtn.setOnClickListener(v -> {
-            sendRequest("/stop");
-            stopTimer();
-        });
+    // Pause timer if user leaves app
+    @Override
+    protected void onPause() {
+        super.onPause();
+        handler.removeCallbacks(timerRunnable);
+        isRunning = false;
+    }
 
-        logoutBtn.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, LoginActivity.class);
-            startActivity(intent);
-            finish(); // closes MainActivity so user can’t go back
-        });
+    // --- Toolbar menu setup ---
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        MenuInflater inflater = getMenuInflater();
+        inflater.inflate(R.menu.main_menu, menu);
+        return true;
+    }
 
+    // --- Handle Settings menu ---
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.action_settings) {
+            Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+            startActivityForResult(intent, 100); // get result back
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    // --- Handle returned IP from Settings ---
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 100 && resultCode == RESULT_OK && data != null) {
+            String newIp = data.getStringExtra("new_ip");
+            if (newIp != null) {
+                BASE_URL = "http://" + newIp + ":3000";
+                Toast.makeText(this, "Server updated to: " + newIp, Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 
     // --- Timer functions ---
@@ -120,7 +150,7 @@ public class MainActivity extends AppCompatActivity {
     private void stopTimer() {
         isRunning = false;
         handler.removeCallbacks(timerRunnable);
-        timerText.setText(""); // clears the timer
+        timerText.setText("");
     }
 
     private final Runnable timerRunnable = new Runnable() {

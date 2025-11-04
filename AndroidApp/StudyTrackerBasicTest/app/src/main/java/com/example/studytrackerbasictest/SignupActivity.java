@@ -41,7 +41,6 @@ public class SignupActivity extends AppCompatActivity {
         Toolbar tb = findViewById(R.id.signupToolbar);
         setSupportActionBar(tb);
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle("Sign up Activity");
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         }
 
