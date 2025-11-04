@@ -1,0 +1,6 @@
+2025-10-26 17:54:25.060 xcodebuild[5811:76361] Writing error result bundle to /var/folders/c3/15swqbbj7gvdj3pcbbx616vh0000gn/T/ResultBundle_2025-26-10_17-54-0025.xcresult
+xcodebuild: error: Unable to find a destination matching the provided destination specifier:
+		{ id:BEAC44DF-97C0-473B-95D1-212024EE8741 }
+
+	Ineligible destinations for the "LockInTwin" scheme:
+		{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device, error:iOS 18.5 is not installed. To use with Xcode, first download and install the platform }

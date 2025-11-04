@@ -1,0 +1,3 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -workspace /Users/obinna.c/CascadeProjects/lock-in-twin-app/ios/LockInTwin.xcworkspace -configuration Debug -scheme LockInTwin -destination id=BEAC44DF-97C0-473B-95D1-212024EE8741
+
