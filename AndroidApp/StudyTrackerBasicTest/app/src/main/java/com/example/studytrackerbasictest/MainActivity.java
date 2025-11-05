@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -18,7 +19,11 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.example.studytrackerbasictest.databases.SessionDatabase;
+import com.google.firebase.firestore.FirebaseFirestore;
+
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Locale;
 
 import okhttp3.*;
@@ -34,6 +39,7 @@ public class MainActivity extends AppCompatActivity {
 
     TextView welcomeText, timerText;
     Button toggleBtn;
+    String sessionName;
 
     private Handler handler = new Handler();
     private boolean isRunning = false;
@@ -42,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
@@ -58,6 +65,7 @@ public class MainActivity extends AppCompatActivity {
         String username = getIntent().getStringExtra("username");
         if (username != null)
             welcomeText.setText("Welcome, " + username + "!");
+
 
         // --- Load saved IP ---
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -83,6 +91,9 @@ public class MainActivity extends AppCompatActivity {
             if (!isRunning) {
                 sendRequest("/start");
                 startTimer();
+
+                sessionName = "Session " + System.currentTimeMillis();
+
                 isRunning = true;
                 toggleBtn.setText("Stop");
                 toggleBtn.setTextColor(getResources().getColor(R.color.red_primary));
@@ -90,6 +101,22 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 sendRequest("/stop");
                 stopTimer();
+
+                // Calculate duration from timer
+                int mins = seconds / 60;
+                int secs = seconds % 60;
+                String duration = String.format(Locale.getDefault(), "%02d:%02d", mins, secs);
+
+                // Reset timer value if needed
+                seconds = 0;
+
+                // Example for saving
+                String date = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new java.util.Date());
+
+                //create new entry an save it to db
+                SessionDatabase sessionDb = new SessionDatabase();
+                sessionDb.addSession(sessionName, date, duration,username);
+
                 isRunning = false;
                 toggleBtn.setText("Start");
                 toggleBtn.setTextColor(getResources().getColor(R.color.green_primary));
