@@ -46,6 +46,9 @@ pip install flask-sock
 pip install requests
 ```
 ```bash
+pip install mediapipe
+```
+```bash
 pip install opencv-python
 ```
 Note: Refer to requirements.txt and pip install dependencies in the venv
