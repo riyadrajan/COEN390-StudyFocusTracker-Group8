@@ -45,6 +45,9 @@ pip install flask-sock
 ```bash
 pip install requests
 ```
+```bash
+pip install opencv-python
+```
 Note: Refer to requirements.txt and pip install dependencies in the venv
 ```bash
 PORT=3000 .venv/bin/python -m driver_state_detection.server
