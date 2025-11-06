@@ -37,19 +37,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 ```
 ```bash
-pip install Flask
-```
-```bash
-pip install flask-sock
-```
-```bash
-pip install requests
-```
-```bash
-pip install mediapipe
-```
-```bash
-pip install opencv-python
+pip install Flask opencv-python flask-sock requests mediapipe opencv-python
 ```
 Note: Refer to requirements.txt and pip install dependencies in the venv
 ```bash
