@@ -74,7 +74,7 @@ SESSION_COLLECTION = "sessionServer"
 # Absolute path to your Firebase service account JSON key file.
 # Fill this before running. Example on macOS:
 # SERVICE_ACCOUNT_KEY_PATH = "/Users/yourname/.secrets/firebase-key.json"
-SERVICE_ACCOUNT_KEY_PATH: str = "/Users/riyadrajan/Documents/studyfocustrackerdb-firebase-adminsdk-fbsvc-d3e18164af.json "
+SERVICE_ACCOUNT_KEY_PATH: str = "/Users/riyadrajan/Documents/studyfocustrackerdb-firebase-adminsdk-fbsvc-d3e18164af.json"
 
 
 def _utcnow() -> datetime:
@@ -106,8 +106,8 @@ def _ensure_firebase_initialized() -> None:
 class SessionServerStore:
     """Server-side Firestore helper for session timing and focus score.
 
-    Methods are idempotent where reasonable and use transactions to preserve
-    counters under concurrent calls.
+    Methods are idempotent where reasonable; aggregate counters use atomic
+    increments to remain consistent under concurrent calls.
     """
 
     def __init__(self) -> None:
@@ -180,7 +180,7 @@ class SessionServerStore:
         else:
             elapsed_ms = int((stopped_at - started_at).total_seconds() * 1000)
 
-        focus_score = (float(distracted_total_ms) / elapsed_ms * 100.0) if elapsed_ms > 0 else 0.0
+        focus_score = ((1 - float(distracted_total_ms) / elapsed_ms) * 100.0) if elapsed_ms > 0 else 0.0
 
         session_ref.update(
             {
@@ -202,22 +202,22 @@ class SessionServerStore:
         """
         start_at = start_at or _utcnow()
         session_ref = self._db.collection(SESSION_COLLECTION).document(session_id)
+        # Non-transactional, simple guard on currentIntervalStart.
+        # Safe enough since edges are serialized per session in our server.
+        snap = session_ref.get()
+        data = snap.to_dict() or {}
 
-        def _txn(tx: firestore.Transaction):
-            snap = session_ref.get(transaction=tx)
-            data = snap.to_dict() or {}
+        if data.get("status") == "completed":
+            return  # ignore if already finished
 
-            if data.get("status") == "completed":
-                return  # ignore if already finished
-
-            if data.get("currentIntervalStart") is None:
-                tx.update(session_ref, {
+        if data.get("currentIntervalStart") is None:
+            session_ref.update(
+                {
                     "currentIntervalStart": start_at,
                     "lastUpdated": firestore.SERVER_TIMESTAMP,
-                })
-            # else: interval already open, ignore
-
-        self._db.transaction()(_txn)
+                }
+            )
+        # else: interval already open, ignore
 
     def mark_focused(self, session_id: str, end_at: Optional[datetime] = None) -> Optional[int]:
         """Record the end of a distracted interval (true -> false edge).
@@ -229,54 +229,45 @@ class SessionServerStore:
         session_ref = self._db.collection(SESSION_COLLECTION).document(session_id)
         intervals_col = session_ref.collection("distractedIntervals")
 
-        closed_duration_ms: Optional[int] = None
+        # Non-transactional close: compute, write interval, then update aggregates.
+        snap = session_ref.get()
+        data = snap.to_dict() or {}
 
-        def _txn(tx: firestore.Transaction):
-            nonlocal closed_duration_ms
-            snap = session_ref.get(transaction=tx)
-            data = snap.to_dict() or {}
+        if not data or data.get("status") == "completed":
+            return None
 
-            if not data or data.get("status") == "completed":
-                return
+        start_at = data.get("currentIntervalStart")
+        if not start_at:
+            return None  # nothing to close
 
-            start_at = data.get("currentIntervalStart")
-            if not start_at:
-                return  # nothing to close
+        # Compute duration and next idx
+        duration_ms = int((end_at - start_at).total_seconds() * 1000)
+        idx = int(data.get("intervalCount", 0) or 0) + 1
 
-            # Calculate time between prompts
-            # Compute duration and next idx
-            duration_ms = int((end_at - start_at).total_seconds() * 1000)
-            idx = int(data.get("intervalCount", 0) or 0) + 1
+        # Create interval document
+        interval_ref = intervals_col.document()
+        interval_ref.set(
+            {
+                "startAt": start_at,
+                "endAt": end_at,
+                "durationMs": duration_ms,
+                "idx": idx,
+                "source": "state-detector",
+                "createdAt": firestore.SERVER_TIMESTAMP,
+            }
+        )
 
-            # Create interval document
-            interval_ref = intervals_col.document()
-            tx.set(
-                interval_ref,
-                {
-                    "startAt": start_at,
-                    "endAt": end_at,
-                    "durationMs": duration_ms,
-                    "idx": idx,
-                    "source": "state-detector",
-                    "createdAt": firestore.SERVER_TIMESTAMP,
-                },
-            )
+        # Update aggregates and clear open marker
+        session_ref.update(
+            {
+                "distractedTotalMs": firestore.Increment(duration_ms),
+                "intervalCount": firestore.Increment(1),
+                "currentIntervalStart": firestore.DELETE_FIELD,
+                "lastUpdated": firestore.SERVER_TIMESTAMP,
+            }
+        )
 
-            # Update aggregates and clear open marker
-            tx.update(
-                session_ref,
-                {
-                    "distractedTotalMs": firestore.Increment(duration_ms),
-                    "intervalCount": firestore.Increment(1),
-                    "currentIntervalStart": firestore.DELETE_FIELD,
-                    "lastUpdated": firestore.SERVER_TIMESTAMP,
-                },
-            )
-
-            closed_duration_ms = duration_ms
-
-        self._db.transaction()(_txn)
-        return closed_duration_ms
+        return duration_ms
 
 
 # # Optional: tiny self-test when run directly (no external side effects beyond Firestore writes)
