@@ -39,6 +39,12 @@ python3 -m venv .venv
 ```bash
 pip install Flask opencv-python flask-sock requests mediapipe opencv-python
 ```
+```bash
+pip install firebase-admin
+```
+```bash
+pip install google-cloud-firestore
+```
 Note: Refer to requirements.txt and pip install dependencies in the venv
 ```bash
 PORT=3000 .venv/bin/python -m driver_state_detection.server
