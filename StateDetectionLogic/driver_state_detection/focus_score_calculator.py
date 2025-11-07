@@ -173,6 +173,7 @@ class SessionServerStore:
         started_at: Optional[datetime] = data.get("startedAt")
         distracted_total_ms: int = int(data.get("distractedTotalMs", 0) or 0)
 
+        # calculate total elapsed time for session
         if not started_at:
             # If start missing, consider elapsed 0 to avoid crashes
             elapsed_ms = 0
@@ -242,6 +243,7 @@ class SessionServerStore:
             if not start_at:
                 return  # nothing to close
 
+            # Calculate time between prompts
             # Compute duration and next idx
             duration_ms = int((end_at - start_at).total_seconds() * 1000)
             idx = int(data.get("intervalCount", 0) or 0) + 1

@@ -101,6 +101,12 @@ def main():
     # Track previous state to trigger once per transition to True
     last_distracted = False
 
+    # Notify server to start a focus-scoring session (non-blocking, safe if server not running)
+    try:
+        requests.post("http://127.0.0.1:3000/session/start", json={}, timeout=0.5)
+    except Exception:
+        pass
+
     while True:  # infinite loop for webcam video capture
         # get current time in seconds
         t_now = time.perf_counter()
@@ -319,7 +325,12 @@ def main():
                 except Exception:
                     # Ignore network errors to avoid breaking the loop
                     pass
-                    last_distracted = distracted
+                # Also record the distracted edge to the server's session API (fire-and-forget)
+                try:
+                    requests.post("http://127.0.0.1:3000/session/edge", json={"distracted": True}, timeout=0.5)
+                except Exception:
+                    pass
+                last_distracted = distracted
 
             if not distracted and last_distracted :
                 payload={"light_on":False}
@@ -327,6 +338,11 @@ def main():
                      requests.post("http://127.0.0.1:3000/light",json=payload, timeout=0.75)
                 except Exception:
                     # Ignore network errors to avoid breaking the loop
+                    pass
+                # Record the focused edge (close interval)
+                try:
+                    requests.post("http://127.0.0.1:3000/session/edge", json={"distracted": False}, timeout=0.5)
+                except Exception:
                     pass
 
             # Update edge detector
@@ -367,6 +383,12 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
+
+    # Finalize focus-scoring session (best-effort, non-blocking)
+    try:
+        requests.post("http://127.0.0.1:3000/session/stop", json={}, timeout=0.5)
+    except Exception:
+        pass
 
     return
 

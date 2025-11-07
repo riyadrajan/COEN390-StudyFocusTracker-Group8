@@ -6,6 +6,7 @@ import logging
 from flask import Flask, jsonify, request
 from flask_sock import Sock
 import requests
+from driver_state_detection.focus_score_calculator import SessionServerStore
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -16,13 +17,24 @@ app.logger.setLevel(logging.INFO)
 proc = None
 light_on_state = False
 ws_clients = set()  # track connected WebSocket clients
+session_store = None  # type: SessionServerStore | None
+session_id = None     # type: str | None
 
 
 @app.route('/')
 def root():
     return jsonify({
         "status": "ok",
-        "endpoints": ["/start", "/stop", "/status", "/light", "/ws"]
+        "endpoints": [
+            "/start", 
+            "/stop", 
+            "/status", 
+            "/light", 
+            "/ws",
+            "/session/start",
+            "/session/edge",
+            "/session/stop"
+        ]
     })
 
 
@@ -59,6 +71,80 @@ def light():
             ws_clients.discard(ws)
 
     return jsonify({"status": "ok", "light_on": light_on_state})
+
+
+# -------------------- Focus scoring session APIs (do not affect /start|/stop) --------------------
+@app.route('/session/start', methods=['POST'])
+def session_start():
+    """Initialize a server-side focus scoring session (Firestore) without touching the vision process.
+
+    Idempotent: if a session already exists in-memory, returns the existing sessionId.
+    Accepts optional JSON: {"userId": string, "username": string}
+    """
+    global session_store, session_id
+    body = request.get_json(silent=True) or {}
+    user_id = body.get("userId")
+    username = body.get("username")
+    try:
+        if session_store is None or session_id is None:
+            store = SessionServerStore()
+            sid = store.start_session(user_id=user_id, username=username)
+            session_store, session_id = store, sid
+            app.logger.info(f"sessionServer started: {sid}")
+        return jsonify({"status": "ok", "sessionId": session_id})
+    except Exception as e:
+        app.logger.warning(f"/session/start skipped: {e}")
+        return jsonify({"status": "skipped", "error": str(e)}), 200
+
+
+@app.route('/session/edge', methods=['POST'])
+def session_edge():
+    """Record a distracted/focused edge into Firestore.
+
+    JSON: {"distracted": bool}
+    Lazily creates a session if one doesn't exist.
+    """
+    global session_store, session_id
+    data = request.get_json(silent=True) or {}
+    distracted = bool(data.get("distracted", False))
+    try:
+        if session_store is None or session_id is None:
+            store = SessionServerStore()
+            sid = store.start_session(user_id=None, username=None)
+            session_store, session_id = store, sid
+            app.logger.info(f"sessionServer (lazy) started: {sid}")
+
+        if distracted:
+            session_store.mark_distracted(session_id)
+        else:
+            session_store.mark_focused(session_id)
+        return jsonify({"status": "ok", "sessionId": session_id})
+    except Exception as e:
+        app.logger.warning(f"/session/edge skipped: {e}")
+        return jsonify({"status": "skipped", "error": str(e)}), 200
+
+
+@app.route('/session/stop', methods=['POST'])
+def session_stop():
+    """Finalize the current focus scoring session: close interval, compute totals & score.
+
+    Does not touch the vision process. Safe to call multiple times; after success, in-memory
+    session references are cleared.
+    """
+    global session_store, session_id
+    try:
+        if session_store and session_id:
+            elapsed_ms, focus = session_store.stop_session(session_id)
+            resp = {"status": "ok", "sessionId": session_id, "elapsedMs": elapsed_ms, "focusScore": focus}
+        else:
+            resp = {"status": "noop"}
+    except Exception as e:
+        app.logger.warning(f"/session/stop skipped: {e}")
+        resp = {"status": "skipped", "error": str(e)}
+    finally:
+        session_store = None
+        session_id = None
+    return jsonify(resp)
 
 @app.route('/start', methods=['POST'])
 def start():
