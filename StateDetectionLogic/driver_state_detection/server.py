@@ -6,6 +6,7 @@ import logging
 from flask import Flask, jsonify, request
 from flask_sock import Sock
 import requests
+from driver_state_detection.focus_score_calculator import SessionServerStore
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -16,6 +17,8 @@ app.logger.setLevel(logging.INFO)
 proc = None
 light_on_state = False
 ws_clients = set()  # track connected WebSocket clients
+session_store = None  # type: SessionServerStore | None
+session_id = None     # type: str | None
 
 
 @app.route('/')
@@ -36,6 +39,7 @@ def status():
 @app.route('/light', methods=['POST'])
 def light():
     global light_on_state
+    global session_store, session_id
     data = request.get_json(silent=True) or {}
 
     # Robust parsing of light_on
@@ -48,6 +52,17 @@ def light():
         light_on_state = bool(val)
 
     app.logger.info(f"Light state set to: {light_on_state}")
+
+    # also add to database (since this is when a distracted call occurs anyways)
+    # Persist distracted edges to Firestore (sessionServer) if a session is active
+    try:
+        if session_store and session_id:
+            if light_on_state:
+                session_store.mark_distracted(session_id)
+            else:
+                session_store.mark_focused(session_id)
+    except Exception as e:
+        app.logger.warning(f"Firestore update skipped: {e}")
 
     # Broadcast to all connected WebSocket clients as raw string
     for ws in list(ws_clients):
@@ -102,6 +117,14 @@ def start():
             except Exception:
                 ws_clients.discard(ws)
 
+        # Initialize a new server-side session for focus scoring
+        try:
+            global session_store, session_id
+            session_store = SessionServerStore()
+            session_id = session_store.start_session(user_id=None, username=None)
+            app.logger.info(f"Started sessionServer session: {session_id}")
+        except Exception as e:
+            app.logger.warning(f"Could not start sessionServer session: {e}")
 
         # Successfully started
         app.logger.info("Vision process started successfully (pid=%s)", proc.pid)
@@ -116,7 +139,7 @@ def start():
 
 @app.route('/stop', methods=['POST'])
 def stop():
-    global proc
+    global proc, session_store, session_id
     if proc is None or proc.poll() is not None:
         return jsonify({"status": "not running"})
 
@@ -135,6 +158,16 @@ def stop():
                 ws.send("OFF")
             except Exception:
                 ws_clients.discard(ws)
+
+        # Finalize session in Firestore
+        try:
+            if session_store and session_id:
+                elapsed_ms, focus = session_store.stop_session(session_id)
+                app.logger.info(f"Session finalized: {session_id} elapsedMs={elapsed_ms} focus={focus:.2f}")
+        except Exception as e:
+            app.logger.warning(f"Could not finalize sessionServer session: {e}")
+        finally:
+            session_id = None
     return jsonify({"status": "stopped"})
 
 

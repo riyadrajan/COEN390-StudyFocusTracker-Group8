@@ -2,3 +2,5 @@ numpy
 opencv-python
 mediapipe
 Flask
+firebase-admin
+google-cloud-firestore
