@@ -4,6 +4,7 @@ import subprocess
 import time
 import atexit
 import logging
+import threading
 from flask import Flask, jsonify, request
 from flask_sock import Sock
 from driver_state_detection.focus_score_calculator import SessionServerStore
@@ -19,6 +20,8 @@ light_on_state = False
 ws_clients = set()  # track connected WebSocket clients
 session_store = None  # type: SessionServerStore | None
 session_id = None     # type: str | None
+session_username = None  # type: str | None
+session_username_lock = threading.Lock()
 
 
 @app.before_request
@@ -85,16 +88,25 @@ def session_start():
     """Initialize a server-side focus scoring session (Firestore) without touching the vision process.
 
     Idempotent: if a session already exists in-memory, returns the existing sessionId.
-    Accepts optional JSON: {"userId": string, "username": string}
+    Accepts JSON: {"username": string}
     """
-    global session_store, session_id
+    global session_store, session_id, session_username, session_username_lock
     body = request.get_json(silent=True) or {}
-    user_id = body.get("userId")
+    # user_id = body.get("userId")
     username = body.get("username")
+    # If the client did not send username here, fall back to a username previously
+    # bound via POST /start (if any). That value is set in /start when a client
+    # includes {"username": "..."} in its request body.
+    if username is None:
+        try:
+            with session_username_lock:
+                username = session_username
+        except Exception:
+            username = None
     try:
         if session_store is None or session_id is None:
             store = SessionServerStore()
-            sid = store.start_session(user_id=user_id, username=username)
+            sid = store.start_session(username=username)
             session_store, session_id = store, sid
             app.logger.info(f"Created document in Firebase: {session_id}")
             # Minimal log via @before_request already prints the endpoint
@@ -159,7 +171,7 @@ def start():
     Starts the driver_state_detection.main process if not already running.
     Returns JSON with status and PID if started successfully.
     """
-    global proc, light_on_state
+    global proc, light_on_state, session_username, session_username_lock
 
     # Check if process is already running
     if proc is not None and proc.poll() is None:
@@ -169,6 +181,22 @@ def start():
     python_exec = sys.executable
     cmd = [python_exec, "-m", "driver_state_detection.main"]
     # Minimal log via @before_request already prints the endpoint
+
+    # Optionally accept JSON {"username": "..."} and bind it so
+    # subsequent /session/start requests can implicitly use it.
+    try:
+        body = request.get_json(silent=True) or {}
+        posted_username = body.get("username")
+        if posted_username:
+            try:
+                with session_username_lock:
+                    session_username = posted_username
+                    app.logger.info(f"Bound username from /start: {session_username}")
+            except Exception:
+                app.logger.warning("Failed to bind username from /start")
+    except Exception:
+        # Non-JSON or no body is fine; /start can still be used to just start the process
+        pass
 
     try:
         # Start subprocess
