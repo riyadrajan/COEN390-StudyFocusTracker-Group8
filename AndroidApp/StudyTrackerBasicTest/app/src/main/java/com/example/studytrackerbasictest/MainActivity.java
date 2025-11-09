@@ -25,6 +25,7 @@ import com.google.firebase.firestore.FirebaseFirestore;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Locale;
+import org.json.JSONObject;
 
 import okhttp3.*;
 import okhttp3.logging.HttpLoggingInterceptor;
@@ -39,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
 
     TextView welcomeText, timerText;
     Button toggleBtn;
-    String sessionName;
+    String sessionName, username;
 
     private Handler handler = new Handler();
     private boolean isRunning = false;
@@ -62,7 +63,8 @@ public class MainActivity extends AppCompatActivity {
         toggleBtn = findViewById(R.id.toggleBtn);
 
         // --- Display username ---
-        String username = getIntent().getStringExtra("username");
+        // String username = getIntent().getStringExtra("username");
+        username = getIntent().getStringExtra("username");
         if (username != null)
             welcomeText.setText("Welcome, " + username + "!");
 
@@ -197,7 +199,19 @@ public class MainActivity extends AppCompatActivity {
     // --- Networking ---
     private void sendRequest(String endpoint) {
         MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-        RequestBody body = RequestBody.create("{}", JSON);
+        // Build payload only for /start, otherwise send empty JSON
+        String bodyText = "{}";
+        if ("/start".equals(endpoint)) {
+            JSONObject payload = new JSONObject();
+            try {
+                if (username != null) payload.put("username", username);
+            } catch (Exception e) {
+                Log.w("MainActivity", "Failed to build JSON payload", e);
+            }
+            bodyText = payload.toString();
+        }
+
+        RequestBody body = RequestBody.create(bodyText, JSON);
         Request request = new Request.Builder()
                 .url(BASE_URL + endpoint)
                 .post(body)
@@ -216,3 +230,4 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 }
+
