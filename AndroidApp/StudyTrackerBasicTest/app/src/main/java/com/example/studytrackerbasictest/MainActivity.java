@@ -2,15 +2,12 @@ package com.example.studytrackerbasictest;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
-import android.view.View;
-import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
@@ -27,12 +24,12 @@ import androidx.core.view.WindowInsetsCompat;
 import com.example.studytrackerbasictest.databases.SessionDatabase;
 import com.google.firebase.firestore.FirebaseFirestore;
 
+import org.json.JSONObject;
+
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-import org.json.JSONObject;
 
 import okhttp3.*;
 import okhttp3.logging.HttpLoggingInterceptor;
@@ -48,6 +45,7 @@ public class MainActivity extends AppCompatActivity {
     TextView welcomeText, timerText;
     Button toggleBtn;
     String sessionName, username;
+    String currentSessionId = null;  // 🔹 shared ID with Flask + Firestore
 
     private Handler handler = new Handler();
     private boolean isRunning = false;
@@ -55,7 +53,6 @@ public class MainActivity extends AppCompatActivity {
     ListView sessionListView;
     ArrayAdapter<String> sessionAdapter;
     ArrayList<String> sessionList = new ArrayList<>();
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,11 +71,9 @@ public class MainActivity extends AppCompatActivity {
         toggleBtn = findViewById(R.id.toggleBtn);
 
         // --- Display username ---
-        // String username = getIntent().getStringExtra("username");
         username = getIntent().getStringExtra("username");
         if (username != null)
             welcomeText.setText("Welcome, " + username + "!");
-
 
         // --- Load saved IP ---
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -105,6 +100,9 @@ public class MainActivity extends AppCompatActivity {
                 sendRequest("/start");
                 startTimer();
 
+                // 🔹 Start new session (server + ID)
+                startFocusSession(username);
+
                 isRunning = true;
                 toggleBtn.setText("Stop");
                 toggleBtn.setTextColor(getResources().getColor(R.color.red_primary));
@@ -113,21 +111,17 @@ public class MainActivity extends AppCompatActivity {
                 sendRequest("/stop");
                 stopTimer();
 
-
-                // Calculate duration from timer
+                // --- Calculate duration ---
                 int mins = seconds / 60;
                 int secs = seconds % 60;
                 String duration = String.format(Locale.getDefault(), "%02d:%02d", mins, secs);
-
-                // Reset timer value if needed
                 seconds = 0;
 
-                // Example for saving
+                // --- Date ---
                 String date = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new java.util.Date());
 
-                //create new entry an save it to db
-                SessionDatabase sessionDb = new SessionDatabase();
-                sessionDb.addSession(date, duration, username);
+                // 🔹 Stop focus session (server) and save focusScore locally
+                stopFocusSessionAndSave(date, duration, username);
 
                 isRunning = false;
                 toggleBtn.setText("Start");
@@ -140,65 +134,11 @@ public class MainActivity extends AppCompatActivity {
         sessionAdapter = new ArrayAdapter<>(this, R.layout.list_item_sessions, R.id.sessionText, sessionList);
         sessionListView.setAdapter(sessionAdapter);
 
-        // Load user's sessions
-        SessionDatabase sessionDb = new SessionDatabase();
-        sessionDb.getSessionsForUser(username, sessions -> {
-            sessionList.clear();
-            for (Map<String, Object> s : sessions) {
-                String name = (String) s.get("name");
-                String date = (String) s.get("date");
-                sessionList.add(name + " — " + date);
-            }
-
-            // Force UI update on the main thread
-            runOnUiThread(() -> {
-                sessionAdapter.notifyDataSetChanged();
-            });
-        });
-
+        // --- Load user's sessions ---
+        reloadSessions();
     }
 
-    // Pause timer if user leaves app
-    @Override
-    protected void onPause() {
-        super.onPause();
-        handler.removeCallbacks(timerRunnable);
-        isRunning = false;
-    }
-
-    // --- Toolbar menu setup ---
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        MenuInflater inflater = getMenuInflater();
-        inflater.inflate(R.menu.main_menu, menu);
-        return true;
-    }
-
-    // --- Handle Settings menu ---
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        if (item.getItemId() == R.id.action_settings) {
-            Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
-            startActivityForResult(intent, 100); // get result back
-            return true;
-        }
-        return super.onOptionsItemSelected(item);
-    }
-
-    // --- Handle returned IP from Settings ---
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == 100 && resultCode == RESULT_OK && data != null) {
-            String newIp = data.getStringExtra("new_ip");
-            if (newIp != null) {
-                BASE_URL = "http://" + newIp + ":3000";
-                Toast.makeText(this, "Server updated to: " + newIp, Toast.LENGTH_SHORT).show();
-            }
-        }
-    }
-
-    // --- Timer functions ---
+    // ---------------- TIMER ----------------
     private void startTimer() {
         if (isRunning) return;
         isRunning = true;
@@ -227,10 +167,9 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    // --- Networking ---
+    // ---------------- NETWORK REQUESTS ----------------
     private void sendRequest(String endpoint) {
         MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-        // Build payload only for /start, otherwise send empty JSON
         String bodyText = "{}";
         if ("/start".equals(endpoint)) {
             JSONObject payload = new JSONObject();
@@ -260,5 +199,126 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-}
 
+    // ---------------- FOCUS SESSION ----------------
+    private void startFocusSession(String username) {
+        MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+        String bodyText = "{\"username\":\"" + username + "\"}";
+        RequestBody body = RequestBody.create(bodyText, JSON);
+        Request request = new Request.Builder()
+                .url(BASE_URL + "/session/start")
+                .post(body)
+                .build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override public void onFailure(Call call, IOException e) {
+                Log.w("MainActivity", "session/start failed: " + e.getMessage());
+            }
+
+            @Override public void onResponse(Call call, Response response) throws IOException {
+                String resp = response.body().string();
+                try {
+                    JSONObject json = new JSONObject(resp);
+                    currentSessionId = json.optString("sessionId", null);
+                    Log.d("MainActivity", "Started session ID: " + currentSessionId);
+                } catch (Exception ex) {
+                    Log.w("MainActivity", "Bad /session/start JSON: " + resp, ex);
+                }
+            }
+        });
+    }
+
+    private void stopFocusSessionAndSave(String date, String duration, String username) {
+        Request request = new Request.Builder()
+                .url(BASE_URL + "/session/stop")
+                .post(RequestBody.create("{}", MediaType.parse("application/json; charset=utf-8")))
+                .build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override public void onFailure(Call call, IOException e) {
+                Log.w("MainActivity", "session/stop failed: " + e.getMessage());
+                // Save locally even if stop fails
+                persistSession(date, duration, username, null);
+            }
+
+            @Override public void onResponse(Call call, Response response) throws IOException {
+                String resp = response.body().string();
+                Double focusScore = null;
+                try {
+                    JSONObject json = new JSONObject(resp);
+                    focusScore = json.has("focusScore") ? json.getDouble("focusScore") : null;
+                } catch (Exception ex) {
+                    Log.w("MainActivity", "Bad /session/stop JSON: " + resp, ex);
+                }
+                persistSession(date, duration, username, focusScore);
+                currentSessionId = null;
+            }
+        });
+    }
+
+    private void persistSession(String date, String duration, String username, Double focusScore) {
+        if (currentSessionId == null) {
+            currentSessionId = "local_" + System.currentTimeMillis();
+        }
+
+        // Create or update session in Firestore
+        SessionDatabase db = new SessionDatabase();
+        db.upsertSessionById(currentSessionId, date, duration, username, focusScore);
+
+        // Refresh list
+        runOnUiThread(this::reloadSessions);
+    }
+
+    // ---------------- FIRESTORE DISPLAY ----------------
+    private void reloadSessions() {
+        SessionDatabase sessionDb = new SessionDatabase();
+        sessionDb.getSessionsForUser(username, sessions -> {
+            sessionList.clear();
+            for (Map<String, Object> s : sessions) {
+                String name = (String) s.get("name");
+                String date = (String) s.get("date");
+                Object fs = s.get("focusScore");
+                String fsStr = (fs == null) ? "—" : String.format(Locale.getDefault(), "%.1f", ((Number) fs).doubleValue());
+                sessionList.add(name + " — " + date + " — Focus " + fsStr);
+            }
+            runOnUiThread(() -> sessionAdapter.notifyDataSetChanged());
+        });
+    }
+
+    // ---------------- MENU ----------------
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        MenuInflater inflater = getMenuInflater();
+        inflater.inflate(R.menu.main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.action_settings) {
+            Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+            startActivityForResult(intent, 100);
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 100 && resultCode == RESULT_OK && data != null) {
+            String newIp = data.getStringExtra("new_ip");
+            if (newIp != null) {
+                BASE_URL = "http://" + newIp + ":3000";
+                Toast.makeText(this, "Server updated to: " + newIp, Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        handler.removeCallbacks(timerRunnable);
+        isRunning = false;
+    }
+}
