@@ -2,13 +2,18 @@ package com.example.studytrackerbasictest;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -23,8 +28,10 @@ import com.example.studytrackerbasictest.databases.SessionDatabase;
 import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import org.json.JSONObject;
 
 import okhttp3.*;
@@ -45,6 +52,10 @@ public class MainActivity extends AppCompatActivity {
     private Handler handler = new Handler();
     private boolean isRunning = false;
     private int seconds = 0;
+    ListView sessionListView;
+    ArrayAdapter<String> sessionAdapter;
+    ArrayList<String> sessionList = new ArrayList<>();
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,8 +105,6 @@ public class MainActivity extends AppCompatActivity {
                 sendRequest("/start");
                 startTimer();
 
-                sessionName = "Session " + System.currentTimeMillis();
-
                 isRunning = true;
                 toggleBtn.setText("Stop");
                 toggleBtn.setTextColor(getResources().getColor(R.color.red_primary));
@@ -103,6 +112,7 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 sendRequest("/stop");
                 stopTimer();
+
 
                 // Calculate duration from timer
                 int mins = seconds / 60;
@@ -117,7 +127,7 @@ public class MainActivity extends AppCompatActivity {
 
                 //create new entry an save it to db
                 SessionDatabase sessionDb = new SessionDatabase();
-                sessionDb.addSession(sessionName, date, duration,username);
+                sessionDb.addSession(date, duration, username);
 
                 isRunning = false;
                 toggleBtn.setText("Start");
@@ -125,6 +135,27 @@ public class MainActivity extends AppCompatActivity {
                 toggleBtn.setBackgroundResource(R.drawable.round_button_green);
             }
         });
+
+        sessionListView = findViewById(R.id.sessionListView);
+        sessionAdapter = new ArrayAdapter<>(this, R.layout.list_item_sessions, R.id.sessionText, sessionList);
+        sessionListView.setAdapter(sessionAdapter);
+
+        // Load user's sessions
+        SessionDatabase sessionDb = new SessionDatabase();
+        sessionDb.getSessionsForUser(username, sessions -> {
+            sessionList.clear();
+            for (Map<String, Object> s : sessions) {
+                String name = (String) s.get("name");
+                String date = (String) s.get("date");
+                sessionList.add(name + " — " + date);
+            }
+
+            // Force UI update on the main thread
+            runOnUiThread(() -> {
+                sessionAdapter.notifyDataSetChanged();
+            });
+        });
+
     }
 
     // Pause timer if user leaves app
