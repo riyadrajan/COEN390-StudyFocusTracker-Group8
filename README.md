@@ -29,7 +29,7 @@ ipconfig getifaddr en0
 
 ## Running Flask in Python
 - Navigate to the StateDetectionLogic Folder  
-- In terminal, run the following commands
+- In terminal, run the following commands (and dependencies in the exact order):
 ```bash
 python3 -m venv .venv
 ```
@@ -37,8 +37,15 @@ python3 -m venv .venv
 . .venv/bin/activate
 ```
 ```bash
+pip install firebase-admin
+```
+```bash
+pip install google-cloud-firestore
+```
+```bash
 pip install Flask opencv-python flask-sock requests mediapipe opencv-python
 ```
+
 Note: Refer to requirements.txt and pip install dependencies in the venv
 ```bash
 PORT=3000 .venv/bin/python -m driver_state_detection.server
