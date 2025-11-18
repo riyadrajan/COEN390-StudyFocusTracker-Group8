@@ -1,8 +1,8 @@
 package com.example.studytrackerbasictest.databases;
 
-import android.util.Log;
+import androidx.annotation.Nullable;
 import com.google.firebase.firestore.FirebaseFirestore;
-
+import com.google.firebase.firestore.SetOptions;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,13 +16,11 @@ public class SessionDatabase {
     }
 
     public void addSession(String date, String duration, String username) {
-        FirebaseFirestore db = FirebaseFirestore.getInstance();
-
         db.collection("sessions")
                 .whereEqualTo("user", username)
                 .get()
                 .addOnSuccessListener(snapshot -> {
-                    int nextIndex = snapshot.size() + 1; // total sessions for this user
+                    int nextIndex = snapshot.size() + 1;
                     String sessionName = "Session " + nextIndex;
 
                     Map<String, Object> session = new HashMap<>();
@@ -32,8 +30,29 @@ public class SessionDatabase {
                     session.put("user", username);
 
                     db.collection("sessions").add(session);
-
                 });
+    }
+
+    public void upsertSessionById(String sessionId, String date, String duration, String username,
+                                  @Nullable Double focusScore) {
+
+        if (sessionId == null || sessionId.isEmpty()) {
+            sessionId = "local_" + System.currentTimeMillis();
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("user", username);
+        data.put("date", date);
+        data.put("duration", duration);
+        data.put("name", "Session " + sessionId.substring(0, Math.min(6, sessionId.length())));
+
+        if (focusScore != null) {
+            data.put("focusScore", focusScore);
+        }
+
+        db.collection("sessions")
+                .document(sessionId)
+                .set(data, SetOptions.merge());
     }
 
     public void getSessionsForUser(String username, OnSessionsLoadedListener listener) {
@@ -49,9 +68,7 @@ public class SessionDatabase {
                 });
     }
 
-    // Callback interface
     public interface OnSessionsLoadedListener {
         void onSessionsLoaded(List<Map<String, Object>> sessions);
     }
-
 }
