@@ -1,13 +1,14 @@
 #include <WiFi.h>
 #include <WebSocketsClient.h>
+#include <ArduinoJson.h>
 
 
 
-const int LED_PIN =18;
-const char *ssid = "WIFI NAME";
-const char *password = "WIFI PASSWORD";
+const int BUZZER_PIN =6;
+const char *ssid = "BELL612";
+const char *password = "9C4E793D6E26";
 
-const char* server_ip ="COMPUTERS IP"; 
+const char* server_ip ="192.168.2.216"; // replace with your computer’s IP
 const uint16_t server_port = 3000; 
 
 
@@ -18,10 +19,14 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     switch(type) {
         case WStype_CONNECTED:
             Serial.println("[WS] Connected to server");
+            blink_sequence();
+            delay(500);
             break;
 
         case WStype_DISCONNECTED:
             Serial.println("[WS] Disconnected from server");
+            blink_sequence();
+            delay(500);
             break;
 
         case WStype_TEXT: {
@@ -31,13 +36,14 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
             if(msg.equals("ON") && !light_state){
                 light_state = true;
                 Serial.println("[WS]Light turned !");
-                digitalWrite(LED_PIN,HIGH);
+                digitalWrite(BUZZER_PIN,HIGH);
             } else if (msg.equals("OFF")&& light_state){
                 light_state=false;
                 Serial.println("[WS]Light turned OFF!");
-                digitalWrite(LED_PIN,LOW);
+                digitalWrite(BUZZER_PIN,LOW);
             }else{
                 Serial.println("[WS] Unknown Message");
+                digitalWrite(BUZZER_PIN,LOW);
             }
             break;
         }
@@ -47,6 +53,21 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     }
 }
 
+void blink_sequence(){
+    digitalWrite(BUZZER_PIN,HIGH);
+    delay(500);
+    digitalWrite(BUZZER_PIN,LOW);
+    delay(500);
+    digitalWrite(BUZZER_PIN,HIGH);
+    delay(500);
+    digitalWrite(BUZZER_PIN,LOW);
+    delay(500);
+    digitalWrite(BUZZER_PIN,HIGH);
+    delay(500);
+    digitalWrite(BUZZER_PIN,LOW);
+    delay(500);
+}
+
 void connectWebSocket(){
     Serial.println("[WS] Attemping to connect...");
     webSocket.begin(server_ip,server_port, "/ws");
@@ -54,8 +75,9 @@ void connectWebSocket(){
 }
 void setup() {
     Serial.begin(115200);
-    pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, LOW);
+    setCpuFrequencyMhz(80);//lower frequency for heat dissipation
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);
 
     // Connect to WiFi
     WiFi.begin(ssid, password);
@@ -66,6 +88,7 @@ void setup() {
     }
     
     Serial.println("\nWiFi connected! IP" +WiFi.localIP().toString());
+
 
     connectWebSocket();
 }
@@ -79,5 +102,6 @@ void loop() {
         Serial.println("[WS] Reconnecting...");
         connectWebSocket();
     }
+    delay(10);
     
 }
