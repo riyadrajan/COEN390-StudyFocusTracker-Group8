@@ -121,6 +121,13 @@ def get_args():
         metavar="",
         help="Sets the Pose time threshold (seconds) for the Attention Scorer, default is 2.5 seconds",
     )
+    parser.add_argument(
+        "--face_missing_time_thresh",
+        type=float,
+        default=2.5,
+        metavar="",
+        help="Seconds the face must be missing before reporting 'face not detected' events (default 2.5)",
+    )
 
     # parse the arguments and store them in the args variable dictionary
     args, _ = parser.parse_known_args()
