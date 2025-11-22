@@ -1,5 +1,6 @@
 package com.example.studytrackerbasictest;
 
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.view.LayoutInflater;
@@ -45,6 +46,9 @@ public class CountdownFragment extends Fragment {
     private final OkHttpClient client = new OkHttpClient();
     private static String BASE_URL = "http://172.20.10.4:3000";
 
+    static final String PREFS_NAME = "AppPrefs";
+    static final String KEY_IP = "server_ip";
+
     @Nullable
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup parent, Bundle savedInstanceState) {
@@ -63,6 +67,10 @@ public class CountdownFragment extends Fragment {
         setupPicker();
         setupPresets();
         setupStartButton();
+
+        SharedPreferences prefs = getActivity().getSharedPreferences(PREFS_NAME, getActivity().MODE_PRIVATE);
+        String savedIp = prefs.getString(KEY_IP, "");
+        if (!savedIp.isEmpty()) BASE_URL = "http://" + savedIp + ":3000";
 
         return v;
     }
@@ -97,6 +105,7 @@ public class CountdownFragment extends Fragment {
 
         isRunning = true;
 
+        sendRequest("/start");
         startFocusSession(username);
 
         countDownTimer = new CountDownTimer(timeLeftMs, 1000) {
@@ -140,6 +149,7 @@ public class CountdownFragment extends Fragment {
 
         // Save as session even if stopped early
         stopFocusSessionAndSave(date, duration, username);
+        sendRequest("/stop");
     }
 
 
@@ -147,6 +157,27 @@ public class CountdownFragment extends Fragment {
         int mins = (int) (ms / 1000) / 60;
         int secs = (int) (ms / 1000) % 60;
         return String.format(Locale.getDefault(), "%02d:%02d", mins, secs);
+    }
+
+    private void sendRequest(String endpoint) {
+        MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+
+        String bodyText = "{}";
+        if (endpoint.equals("/start")) {
+            JSONObject obj = new JSONObject();
+            try { obj.put("username", username); } catch (Exception ignored) {}
+            bodyText = obj.toString();
+        }
+
+        Request request = new Request.Builder()
+                .url(BASE_URL + endpoint)
+                .post(RequestBody.create(bodyText, JSON))
+                .build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override public void onFailure(Call call, IOException e) {}
+            @Override public void onResponse(Call call, Response response) {}
+        });
     }
 
     private void startFocusSession(String username) {
