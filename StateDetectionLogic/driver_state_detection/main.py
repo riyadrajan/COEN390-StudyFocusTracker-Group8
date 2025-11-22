@@ -101,6 +101,9 @@ def main():
     # Track previous state to trigger once per transition to True
     last_distracted = False
     last_face_detected = True
+    # timers for requiring sustained 'face missing' before reporting
+    face_not_detected_time = 0.0
+    face_detected_time = 0.0
 
     # Notify server to start a focus-scoring session (non-blocking, safe if server not running)
     try:
@@ -149,50 +152,65 @@ def main():
 
         # find the faces using the face mesh model
         lms = Detector.process(gray).multi_face_landmarks
-        #true if face detected (lms not None), false otherwise
+        # true if face detected (lms not None), false otherwise
         face_detected = bool(lms)
+
+        # update sustained absence/presence timers (use frame elapsed_time)
         if not face_detected:
+            face_not_detected_time += elapsed_time
+            face_detected_time = 0.0
+        else:
+            face_detected_time += elapsed_time
+            face_not_detected_time = 0.0
+
+        # decide whether the face has been missing/present for the configured threshold
+        face_missing_state = face_not_detected_time >= getattr(args, "face_missing_time_thresh", 2.5)
+        face_present_state = face_detected_time >= getattr(args, "face_missing_time_thresh", 2.5)
+
+        # show the on-screen message only when the face has been missing long enough
+        if face_missing_state:
             cv2.putText(
-                    frame,
-                    "DISTRACTED_TESTTTTTTT!",
-                    (10, 340),
-                    cv2.FONT_HERSHEY_PLAIN,
-                    1,
-                    (0, 0, 255),
-                    1,
-                    cv2.LINE_AA,           
+                frame,
+                "DISTRACTED_TESTTTTTTT!",
+                (10, 340),
+                cv2.FONT_HERSHEY_PLAIN,
+                1,
+                (0, 0, 255),
+                1,
+                cv2.LINE_AA,
             )
-        #Vibrate if face is not detected after previously being distracted (false, true)=> distracted
-        if not face_detected and last_face_detected:
-            payload= {"light_on":True}
+
+        # If face was preciously detected but now is not detected, send signal to start timing distracted
+        if face_missing_state and last_face_detected:
+            payload = {"light_on": True}
             try:
-                requests.post("http://127.0.0.1:3000/light",json=payload, timeout=0.75)
+                requests.post("http://127.0.0.1:3000/light", json=payload, timeout=0.75)
             except Exception:
-                    # Ignore network errors to avoid breaking the loop
+                # Ignore network errors to avoid breaking the loop
                 pass
-                # Also record the distracted edge to the server's session API (fire-and-forget)
-            # suppress spurious edges during initial warmup
+            # Also record the distracted edge to the server's session API (fire-and-forget)
             if time.perf_counter() - start_time >= 1.0:
                 try:
                     requests.post("http://127.0.0.1:3000/session/edge", json={"distracted": True}, timeout=0.5)
                 except Exception:
                     pass
-        # stop vibrating if your face was previously not detected but is now detected
-        if face_detected and not last_face_detected :
-                payload={"light_on":False}
+            last_face_detected = False
+
+        # If face was previoulsy not detected but is now detected, ...
+        if face_present_state and not last_face_detected:
+            payload = {"light_on": False}
+            try:
+                requests.post("http://127.0.0.1:3000/light", json=payload, timeout=0.75)
+            except Exception:
+                # Ignore network errors to avoid breaking the loop
+                pass
+            # Record the focused edge (close interval)
+            if time.perf_counter() - start_time >= 1.0:
                 try:
-                     requests.post("http://127.0.0.1:3000/light",json=payload, timeout=0.75)
+                    requests.post("http://127.0.0.1:3000/session/edge", json={"distracted": False}, timeout=0.5)
                 except Exception:
-                    # Ignore network errors to avoid breaking the loop
                     pass
-                # Record the focused edge (close interval)
-                # suppress spurious edges during initial warmup
-                if time.perf_counter() - start_time >= 1.0:
-                    try:
-                        requests.post("http://127.0.0.1:3000/session/edge", json={"distracted": False}, timeout=0.5)
-                    except Exception:
-                        pass
-        last_face_detected = face_detected
+            last_face_detected = True
 
         if lms:  # process the frame only if at least a face is found
             # getting face landmarks and then take only the bounding box of the biggest face
