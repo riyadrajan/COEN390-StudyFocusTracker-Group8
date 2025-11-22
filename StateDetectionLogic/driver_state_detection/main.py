@@ -171,7 +171,7 @@ def main():
         if face_missing_state:
             cv2.putText(
                 frame,
-                "DISTRACTED_TESTTTTTTT!",
+                "DISTRACTED",
                 (10, 340),
                 cv2.FONT_HERSHEY_PLAIN,
                 1,
