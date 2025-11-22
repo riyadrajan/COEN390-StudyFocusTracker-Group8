@@ -100,12 +100,16 @@ def main():
 
     # Track previous state to trigger once per transition to True
     last_distracted = False
+    last_face_detected = True
 
     # Notify server to start a focus-scoring session (non-blocking, safe if server not running)
     try:
         requests.post("http://127.0.0.1:3000/session/start", json={}, timeout=0.5)
     except Exception:
         pass
+
+    # startup warmup: suppress session edge posts for the first second
+    start_time = time.perf_counter()
 
     while True:  # infinite loop for webcam video capture
         # get current time in seconds
@@ -145,6 +149,50 @@ def main():
 
         # find the faces using the face mesh model
         lms = Detector.process(gray).multi_face_landmarks
+        #true if face detected (lms not None), false otherwise
+        face_detected = bool(lms)
+        if not face_detected:
+            cv2.putText(
+                    frame,
+                    "DISTRACTED_TESTTTTTTT!",
+                    (10, 340),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    1,
+                    (0, 0, 255),
+                    1,
+                    cv2.LINE_AA,           
+            )
+        #Vibrate if face is not detected after previously being distracted (false, true)=> distracted
+        if not face_detected and last_face_detected:
+            payload= {"light_on":True}
+            try:
+                requests.post("http://127.0.0.1:3000/light",json=payload, timeout=0.75)
+            except Exception:
+                    # Ignore network errors to avoid breaking the loop
+                pass
+                # Also record the distracted edge to the server's session API (fire-and-forget)
+            # suppress spurious edges during initial warmup
+            if time.perf_counter() - start_time >= 1.0:
+                try:
+                    requests.post("http://127.0.0.1:3000/session/edge", json={"distracted": True}, timeout=0.5)
+                except Exception:
+                    pass
+        # stop vibrating if your face was previously not detected but is now detected
+        if face_detected and not last_face_detected :
+                payload={"light_on":False}
+                try:
+                     requests.post("http://127.0.0.1:3000/light",json=payload, timeout=0.75)
+                except Exception:
+                    # Ignore network errors to avoid breaking the loop
+                    pass
+                # Record the focused edge (close interval)
+                # suppress spurious edges during initial warmup
+                if time.perf_counter() - start_time >= 1.0:
+                    try:
+                        requests.post("http://127.0.0.1:3000/session/edge", json={"distracted": False}, timeout=0.5)
+                    except Exception:
+                        pass
+        last_face_detected = face_detected
 
         if lms:  # process the frame only if at least a face is found
             # getting face landmarks and then take only the bounding box of the biggest face
@@ -299,7 +347,6 @@ def main():
             #     state.distracted = bool(distracted)
             # except Exception:
             #     pass
-
             if distracted:
                 cv2.putText(
                     frame,
