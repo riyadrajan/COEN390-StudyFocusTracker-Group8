@@ -27,7 +27,6 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import okhttp3.logging.HttpLoggingInterceptor;
 
 public class HomeFragment extends Fragment {
 
@@ -36,6 +35,7 @@ public class HomeFragment extends Fragment {
 
     TextView welcomeText, timerText;
     Button toggleBtn;
+
     String username;
     String currentSessionId = null;
 
@@ -58,15 +58,11 @@ public class HomeFragment extends Fragment {
         if (username != null)
             welcomeText.setText("Welcome, " + username + "!");
 
-        // Load IP saved in Settings
         SharedPreferences prefs = getActivity().getSharedPreferences(PREFS_NAME, getActivity().MODE_PRIVATE);
         String savedIp = prefs.getString(KEY_IP, "");
         if (!savedIp.isEmpty()) BASE_URL = "http://" + savedIp + ":3000";
 
-        // Build HTTP client
-        HttpLoggingInterceptor logging = new HttpLoggingInterceptor();
-        logging.setLevel(HttpLoggingInterceptor.Level.BASIC);
-        client = new OkHttpClient.Builder().addInterceptor(logging).build();
+        client = new OkHttpClient();
 
         toggleBtn.setOnClickListener(vw -> {
             if (!isRunning) {
@@ -76,26 +72,20 @@ public class HomeFragment extends Fragment {
 
                 isRunning = true;
                 toggleBtn.setText("Stop");
-                toggleBtn.setTextColor(getResources().getColor(R.color.red_primary));
                 toggleBtn.setBackgroundResource(R.drawable.round_button_red);
 
             } else {
                 sendRequest("/stop");
                 stopTimer();
 
-                int mins = seconds / 60;
-                int secs = seconds % 60;
-                String duration = String.format(Locale.getDefault(), "%02d:%02d", mins, secs);
+                String duration = String.format(Locale.getDefault(), "%02d:%02d", seconds / 60, seconds % 60);
+                String date = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new java.util.Date());
                 seconds = 0;
-
-                String date = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                        .format(new java.util.Date());
 
                 stopFocusSessionAndSave(date, duration, username);
 
                 isRunning = false;
                 toggleBtn.setText("Start");
-                toggleBtn.setTextColor(getResources().getColor(R.color.green_primary));
                 toggleBtn.setBackgroundResource(R.drawable.round_button_green);
             }
         });
@@ -103,9 +93,8 @@ public class HomeFragment extends Fragment {
         return v;
     }
 
-    //------------------- TIMER -------------------
+    // ---------- Timer ----------
     private void startTimer() {
-        if (isRunning) return;
         isRunning = true;
         seconds = 0;
         timerText.setText("Running: 00:00");
@@ -122,46 +111,41 @@ public class HomeFragment extends Fragment {
         @Override public void run() {
             if (isRunning) {
                 seconds++;
-                int mins = seconds / 60;
-                int secs = seconds % 60;
-                timerText.setText(String.format("Running: %02d:%02d", mins, secs));
+                timerText.setText(String.format("Running: %02d:%02d", seconds / 60, seconds % 60));
                 handler.postDelayed(this, 1000);
             }
         }
     };
 
-    //------------------- NETWORK -------------------
+    // ---------- Flask start ----------
     private void sendRequest(String endpoint) {
         MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
         String bodyText = "{}";
         if (endpoint.equals("/start")) {
-            JSONObject payload = new JSONObject();
-            try { payload.put("username", username); } catch (Exception ignored) {}
-            bodyText = payload.toString();
+            JSONObject obj = new JSONObject();
+            try { obj.put("username", username); } catch (Exception ignored) {}
+            bodyText = obj.toString();
         }
 
-        RequestBody body = RequestBody.create(bodyText, JSON);
-        Request request = new Request.Builder().url(BASE_URL + endpoint).post(body).build();
+        Request request = new Request.Builder()
+                .url(BASE_URL + endpoint)
+                .post(RequestBody.create(bodyText, JSON))
+                .build();
 
         client.newCall(request).enqueue(new Callback() {
-            @Override public void onFailure(Call call, IOException e) {
-                getActivity().runOnUiThread(() ->
-                        Toast.makeText(getActivity(), "Request failed: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-            }
-
+            @Override public void onFailure(Call call, IOException e) {}
             @Override public void onResponse(Call call, Response response) {}
         });
     }
 
-    //------------------- FOCUS SESSION -------------------
     private void startFocusSession(String username) {
         MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-        String bodyText = "{\"username\":\"" + username + "\"}";
+        String body = "{\"username\":\"" + username + "\"}";
 
         Request request = new Request.Builder()
                 .url(BASE_URL + "/session/start")
-                .post(RequestBody.create(bodyText, JSON))
+                .post(RequestBody.create(body, JSON))
                 .build();
 
         client.newCall(request).enqueue(new Callback() {
@@ -177,35 +161,33 @@ public class HomeFragment extends Fragment {
     }
 
     private void stopFocusSessionAndSave(String date, String duration, String username) {
+
         Request request = new Request.Builder()
                 .url(BASE_URL + "/session/stop")
                 .post(RequestBody.create("{}", MediaType.parse("application/json; charset=utf-8")))
                 .build();
 
         client.newCall(request).enqueue(new Callback() {
+
             @Override public void onFailure(Call call, IOException e) {
-                persistSession(date, duration, username, null);
+                SessionDatabase db = new SessionDatabase();
+                db.saveSession(currentSessionId, date, duration, username, null);
             }
 
             @Override public void onResponse(Call call, Response response) throws IOException {
-                Double fs = null;
+                Double focusScore = null;
+
                 try {
                     JSONObject json = new JSONObject(response.body().string());
                     if (json.has("focusScore"))
-                        fs = json.getDouble("focusScore");
+                        focusScore = json.getDouble("focusScore");
                 } catch (Exception ignored) {}
 
-                persistSession(date, duration, username, fs);
+                SessionDatabase db = new SessionDatabase();
+                db.saveSession(currentSessionId, date, duration, username, focusScore);
+
                 currentSessionId = null;
             }
         });
-    }
-
-    private void persistSession(String date, String duration, String username, Double focusScore) {
-        if (currentSessionId == null)
-            currentSessionId = "local_" + System.currentTimeMillis();
-
-        SessionDatabase db = new SessionDatabase();
-        db.upsertSessionById(currentSessionId, date, duration, username, focusScore);
     }
 }

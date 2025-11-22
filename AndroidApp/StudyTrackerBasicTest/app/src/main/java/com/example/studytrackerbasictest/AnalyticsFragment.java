@@ -37,24 +37,23 @@ public class AnalyticsFragment extends Fragment {
                 sessionList);
         sessionListView.setAdapter(adapter);
 
-        // 1) Try from Intent (like before)
-        if (getActivity() != null) {
-            username = getActivity().getIntent().getStringExtra("username");
-        }
-
-        // 2) Fallback to SharedPreferences (used by login / logout)
+        // Get username
+        username = getActivity().getIntent().getStringExtra("username");
         if (username == null || username.isEmpty()) {
             SharedPreferences prefs = requireActivity()
                     .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             username = prefs.getString("logged_in_user", null);
         }
 
-        // If still null, we just won’t load anything (better than crashing)
-        if (username != null && !username.isEmpty()) {
-            loadSessions();
-        }
-
         return v;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (username != null && !username.isEmpty()) {
+            loadSessions();   // refresh when returning here
+        }
     }
 
     private void loadSessions() {
@@ -64,6 +63,7 @@ public class AnalyticsFragment extends Fragment {
             for (Map<String, Object> s : sessions) {
                 String name = (String) s.get("name");
                 String date = (String) s.get("date");
+                String duration = (String) s.get("duration");
                 Object fs = s.get("focusScore");
 
                 String fsStr = (fs == null)
@@ -71,7 +71,7 @@ public class AnalyticsFragment extends Fragment {
                         : String.format(Locale.getDefault(), "%.1f",
                         ((Number) fs).doubleValue());
 
-                sessionList.add(name + " — " + date + " — Focus " + fsStr);
+                sessionList.add(name + " — " + date + " — Focus " + fsStr+" — " + duration + " min");
             }
 
             if (getActivity() != null) {
